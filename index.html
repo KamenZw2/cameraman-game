@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Cameraman vs Zombies 3D - Shift Lock & Titan Blade</title>
+    <style>
+        body, html {
+            margin: 0; padding: 0; width: 100%; height: 100%;
+            overflow: hidden; background-color: #111;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            user-select: none; -webkit-user-select: none; touch-action: none;
+        }
+        #canvas-container { width: 100%; height: 100%; display: block; position: absolute; top: 0; left: 0; z-index: 1; }
+        
+        /* UI Overlay */
+        #ui-layer {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            z-index: 10; pointer-events: none; display: flex; flex-direction: column;
+            justify-content: space-between; box-sizing: border-box; padding: 15px;
+        }
+        .hud-panel {
+            background: rgba(20, 20, 30, 0.85); border: 2px solid rgba(0, 255, 255, 0.4);
+            border-radius: 12px; padding: 10px 15px; color: white; pointer-events: auto;
+            backdrop-filter: blur(5px); box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+        }
+        .top-bar { display: flex; justify-content: space-between; align-items: center; width: 100%; }
+        .stat-box { display: flex; align-items: center; gap: 10px; }
+        .health-bar-container { width: 150px; height: 14px; background: #333; border-radius: 7px; overflow: hidden; border: 1px solid #555; }
+        .health-bar-fill { width: 100%; height: 100%; background: linear-gradient(90deg, #ff3333, #00ff88); transition: width 0.2s; }
+        
+        /* Crosshair for Shift Lock */
+        #crosshair {
+            position: absolute; top: 50%; left: 50%; width: 24px; height: 24px;
+            transform: translate(-50%, -50%); pointer-events: none; display: none; z-index: 5;
+        }
+        #crosshair::before, #crosshair::after {
+            content: ''; position: absolute; background: rgba(0, 255, 255, 0.8);
+            box-shadow: 0 0 6px #00ffff;
+        }
+        #crosshair::before { top: 11px; left: 2px; width: 20px; height: 2px; }
+        #crosshair::after { top: 2px; left: 11px; width: 2px; height: 20px; }
+
+        /* Mobile Controls */
+        .controls-layer {
+            position: absolute; bottom: 0; left: 0; width: 100%; height: 100%;
+            pointer-events: none; z-index: 20; box-sizing: border-box; padding: 20px;
+            display: flex; justify-content: space-between; align-items: flex-end;
+        }
+        .joystick-zone {
+            width: 130px; height: 130px; background: rgba(255,255,255,0.08);
+            border: 2px solid rgba(255,255,255,0.2); border-radius: 50%;
+            position: relative; pointer-events: auto; touch-action: none;
+        }
+        .joystick-knob {
+            width: 55px; height: 55px; background: rgba(0, 255, 255, 0.6);
+            border: 2px solid #fff; border-radius: 50%; position: absolute;
+            top: 37.5px; left: 37.5px; transform: translate(0,0);
+            box-shadow: 0 0 10px rgba(0,255,255,0.8);
+        }
+        .action-buttons { display: flex; gap: 12px; align-items: center; pointer-events: auto; }
+        .btn-game {
+            width: 65px; height: 65px; border-radius: 50%; border: 2px solid rgba(255,255,255,0.4);
+            background: rgba(30, 30, 45, 0.85); color: white; font-size: 22px;
+            display: flex; align-items: center; justify-content: center; cursor: pointer;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.4); transition: transform 0.1s, background 0.2s;
+        }
+        .btn-game:active { transform: scale(0.9); background: rgba(0, 255, 255, 0.4); }
+        .btn-sword { width: 75px; height: 75px; background: rgba(138, 43, 226, 0.85); border-color: #da70d6; font-size: 28px; }
+        .btn-shiftlock { background: rgba(255, 140, 0, 0.85); border-color: #ffa500; font-size: 22px; }
+
+        #look-touch-zone {
+            position: absolute; top: 0; right: 0; width: 50%; height: 70%;
+            pointer-events: auto; z-index: 5;
+        }
+    </style>
+</head>
+<body>
+    <div id="canvas-container"></div>
+    <div id="crosshair"></div>
+
+    <div id="ui-layer">
+        <div class="top-bar">
+            <div class="hud-panel stat-box">
+                <div>
+                    <div style="font-size: 13px; font-weight: bold; color: #00ffff; margin-bottom: 3px;">CAMERAMAN</div>
+                    <div class="health-bar-container"><div id="hp-fill" class="health-bar-fill"></div></div>
+                </div>
+            </div>
+            <div class="hud-panel" style="text-align: center;">
+                <div style="font-size: 11px; color: #aaa;">ZOMBIES DEFEATED</div>
+                <div id="score-val" style="font-size: 22px; font-weight: bold; color: #ff3333;">0</div>
+            </div>
+        </div>
+    </div>
+
+    <div id="look-touch-zone"></div>
+
+    <div class="controls-layer">
+        <div id="joystick-zone" class="joystick-zone">
+            <div id="joystick-knob" class="joystick-knob"></div>
+        </div>
+        <div class="action-buttons">
+            <button id="btn-shiftlock" class="btn-game btn-shiftlock" title="Shift Lock">🔒</button>
+            <button id="btn-jump" class="btn-game" title="Jump">⬆️</button>
+            <button id="btn-attack" class="btn-game btn-sword" title="Titan Arm Blade Slash">⚔️</button>
+        </div>
+    </div>
+
+    <!-- Three.js Library -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script>
+        // --- GAME ENGINE SETUP ---
+        const container = document.getElementById('canvas-container');
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x0c0c14);
+        scene.fog = new THREE.FogExp2(0x0c0c14, 0.015);
+
+        const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        container.appendChild(renderer.domElement);
+
+        // Lighting
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+        scene.add(ambientLight);
+
+        const dirLight = new THREE.DirectionalLight(0xffffff, 0.9);
+        dirLight.position.set(30, 50, 30);
+        dirLight.castShadow = true;
+        dirLight.shadow.mapSize.width = 2048;
+        dirLight.shadow.mapSize.height = 2048;
+        dirLight.shadow.camera.near = 0.5;
+        dirLight.shadow.camera.far = 150;
+        const d = 40;
+        dirLight.shadow.camera.left = -d;
+        dirLight.shadow.camera.right = d;
+        dirLight.shadow.camera.top = d;
+        dirLight.shadow.camera.bottom = -d;
+        scene.add(dirLight);
+
+        const purpleGlowLight = new THREE.PointLight(0x9400D3, 2, 15);
+        scene.add(purpleGlowLight);
+
+        // --- ENVIRONMENT (ROBLOX STYLE CITY) ---
+        const floorGeo = new THREE.PlaneGeometry(300, 300);
+        const floorMat = new THREE.MeshStandardMaterial({ color: 0x222629, roughness: 0.8 });
+        const floor = new THREE.Mesh(floorGeo, floorMat);
+        floor.rotation.x = -Math.PI / 2;
+        floor.receiveShadow = true;
+        scene.add(floor);
+
+        // Grid lines
+        const gridHelper = new THREE.GridHelper(300, 60, 0x00ffff, 0x444444);
+        gridHelper.position.y = 0.02;
+        scene.add(gridHelper);
+
+        // Buildings
+        const buildingMat = new THREE.MeshStandardMaterial({ color: 0x3a3f47, roughness: 0.6 });
+        const windowMat = new THREE.MeshBasicMaterial({ color: 0x00ffff });
+        const buildingColors = [0x2c3e50, 0x34495e, 0x415b76, 0x243342];
+
+        for (let i = 0; i < 24; i++) {
+            const w = 12 + Math.random() * 10;
+            const h = 25 + Math.random() * 45;
+            const dB = 12 + Math.random() * 10;
+            const bMat = new THREE.MeshStandardMaterial({ color: buildingColors[Math.floor(Math.random() * buildingColors.length)], roughness: 0.5 });
+            const bMesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, dB), bMat);
+            
+            let bx, bz;
+            do {
+                bx = (Math.random() - 0.5) * 220;
+                bz = (Math.random() - 0.5) * 220;
+            } while (Math.abs(bx) < 25 && Math.abs(bz) < 25);
+
+            bMesh.position.set(bx, h/2, bz);
+            bMesh.castShadow = true;
+            bMesh.receiveShadow = true;
+            scene.add(bMesh);
+        }
+
+        // --- PLAYER MODEL: CAMERAMAN WITH TITAN TV MAN ARM BLADE ---
+        const playerGroup = new THREE.Group();
+        scene.add(playerGroup);
+
+        // Materials
+        const suitMat = new THREE.MeshStandardMaterial({ color: 0x1a1a24, roughness: 0.5 });
+        const shirtMat = new THREE.MeshStandardMaterial({ color: 0xeeeeee });
+        const tieMat = new THREE.MeshStandardMaterial({ color: 0xcc0000 });
+        const skinMat = new THREE.MeshStandardMaterial({ color: 0xd8a07c });
+        const cameraBodyMat = new THREE.MeshStandardMaterial({ color: 0x222228, roughness: 0.3 });
+        const lensGlassMat = new THREE.MeshStandardMaterial({ color: 0x00ffff, emissive: 0x00ffff, emissiveIntensity: 0.8 });
+        const lensRimMat = new THREE.MeshStandardMaterial({ color: 0x444455, metalness: 0.8, roughness: 0.2 });
+
+        // Body parts
+        const torso = new THREE.Mesh(new THREE.BoxGeometry(0.9, 1.1, 0.5), suitMat);
+        torso.position.y = 1.15;
+        torso.castShadow = true;
+        playerGroup.add(torso);
+
+        // White Shirt & Red Tie
+        const shirt = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.5, 0.52), shirtMat);
+        shirt.position.set(0, 1.35, 0);
+        playerGroup.add(shirt);
+        const tie = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.45, 0.54), tieMat);
+        tie.position.set(0, 1.25, 0);
+        playerGroup.add(tie);
+
+        // Camera Head
+        const cameraHead = new THREE.Group();
+        cameraHead.position.set(0, 1.9, 0);
+        playerGroup.add(cameraHead);
+
+        const camBodyBox = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.7, 0.9), cameraBodyMat);
+        camBodyBox.castShadow = true;
+        cameraHead.add(camBodyBox);
+
+        const lensCyl = new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.32, 0.4, 24), lensRimMat);
+        lensCyl.rotation.x = Math.PI / 2;
+        lensCyl.position.set(0, 0, -0.5);
+        cameraHead.add(lensCyl);
+
+        const lensInner = new THREE.Mesh(new THREE.CircleGeometry(0.28, 24), lensGlassMat);
+        lensInner.position.set(0, 0, -0.71);
+        cameraHead.add(lensInner);
+
+        // Top flash / mic & antenna
+        const flashLightBox = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.1, 0.2), new THREE.MeshBasicMaterial({ color: 0xffff00 }));
+        flashLightBox.position.set(0, 0.4, 0);
+        cameraHead.add(flashLightBox);
+
+        const antenna = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.5), lensRimMat);
+        antenna.position.set(0.25, 0.55, -0.2);
+        cameraHead.add(antenna);
+
+        // Limbs & Titan TV Man Arm Blade
+        const armGeo = new THREE.BoxGeometry(0.3, 0.8, 0.3);
+        const legGeo = new THREE.BoxGeometry(0.32, 0.9, 0.32);
+
+        const leftArm = new THREE.Mesh(armGeo, suitMat);
+        leftArm.position.set(-0.65, 1.15, 0);
+        leftArm.castShadow = true;
+        playerGroup.add(leftArm);
+
+        const rightArmGroup = new THREE.Group();
+        rightArmGroup.position.set(0.65, 1.15, 0);
+        playerGroup.add(rightArmGroup);
+
+        const rightArm = new THREE.Mesh(armGeo, suitMat);
+        rightArm.position.set(0, -0.4, 0);
+        rightArm.castShadow = true;
+        rightArmGroup.add(rightArm);
+
+        // --- TITAN TV MAN ARM BLADE (Mounted Strictly on Forearm) ---
+        const bladeGroup = new THREE.Group();
+        bladeGroup.position.set(0, -0.75, 0); // attached to lower right forearm
+        rightArmGroup.add(bladeGroup);
+
+        // Gauntlet base
+        const gauntlet = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.35, 0.4), new THREE.MeshStandardMaterial({ color: 0x111115, metalness: 0.9, roughness: 0.2 }));
+        bladeGroup.add(gauntlet);
+
+        // Main jagged sharp energy blade (pointing forward along arm)
+        const bladeSpikeGeo = new THREE.BoxGeometry(0.12, 0.28, 1.4);
+        const bladeCoreMat = new THREE.MeshStandardMaterial({ 
+            color: 0x9400D3, 
+            emissive: 0x9400D3, 
+            emissiveIntensity: 1.5,
+            roughness: 0.1 
+        });
+        const bladeSpike = new THREE.Mesh(bladeSpikeGeo, bladeCoreMat);
+        bladeSpike.position.set(0, 0, -0.8);
+        bladeGroup.add(bladeSpike);
+
+        // Outer dark metallic armor cage
+        const armorCage1 = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.32, 1.2), new THREE.MeshStandardMaterial({ color: 0x22222b, metalness: 0.8 }));
+        armorCage1.position.set(0.08, 0, -0.7);
+        bladeGroup.add(armorCage1);
+
+        const armorCage2 = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.32, 1.2), new THREE.MeshStandardMaterial({ color: 0x22222b, metalness: 0.8 }));
+        armorCage2.position.set(-0.08, 0, -0.7);
+        bladeGroup.add(armorCage2);
+
+        // Legs
+        const leftLeg = new THREE.Mesh(legGeo, suitMat);
+        leftLeg.position.set(-0.25, 0.45, 0);
+        leftLeg.castShadow = true;
+        playerGroup.add(leftLeg);
+
+        const rightLeg = new THREE.Mesh(legGeo, suitMat);
+        rightLeg.position.set(0.25, 0.45, 0);
+        rightLeg.castShadow = true;
+        playerGroup.add(rightLeg);
+
+        // --- ZOMBIE SYSTEM ---
+        const zombies = [];
+        const zombieGeo = new THREE.BoxGeometry(0.8, 1.7, 0.6);
+        const zombieMat = new THREE.MeshStandardMaterial({ color: 0x4a6b52, roughness: 0.7 });
+
+        function spawnZombie() {
+            const zGroup = new THREE.Group();
+            const body = new THREE.Mesh(zombieGeo, zombieMat);
+            body.position.y = 0.85;
+            body.castShadow = true;
+            zGroup.add(body);
+
+            // Glowing red eyes
+            const eyeMat = new THREE.MeshBasicMaterial({ color: 0xff0000 });
+            const eye1 = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.08, 0.1), eyeMat);
+            eye1.position.set(-0.2, 1.4, -0.31);
+            zGroup.add(eye1);
+            const eye2 = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.08, 0.1), eyeMat);
+            eye2.position.set(0.2, 1.4, -0.31);
+            zGroup.add(eye2);
+
+            // Spawn random distance around player
+            const angle = Math.random() * Math.PI * 2;
+            const dist = 40 + Math.random() * 50;
+            zGroup.position.set(playerGroup.position.x + Math.cos(angle) * dist, 0, playerGroup.position.z + Math.sin(angle) * dist);
+
+            scene.add(zGroup);
+            zombies.push({
+                mesh: zGroup,
+                hp: 50,
+                speed: 0.06 + Math.random() * 0.04,
+                attackCooldown: 0
+            });
+        }
+
+        // Spawn initial wave
+        for (let i = 0; i < 10; i++) spawnZombie();
+
+        // --- GAME STATE & CONTROLS ---
+        const playerState = {
+            hp: 100,
+            maxHp: 100,
+            speed: 0.16,
+            score: 0,
+            isAttacking: false,
+            attackTime: 0,
+            isJumping: false,
+            jumpVelocity: 0,
+            shiftLock: false
+        };
+
+        let cameraAngleX = 0; // Orbit horizontal
+        let cameraAngleY = 0.4; // Orbit vertical
+        let cameraDist = 7;
+
+        const input = { x: 0, y: 0, jump: false, attack: false };
+        let joystickActive = false;
+        let joystickOrigin = { x: 0, y: 0 };
+        let touchLookActive = false;
+        let lastTouchLookPos = { x: 0, y: 0 };
+
+        // Joystick Setup
+        const joyZone = document.getElementById('joystick-zone');
+        const joyKnob = document.getElementById('joystick-knob');
+
+        joyZone.addEventListener('pointerdown', (e) => {
+            joystickActive = true;
+            const rect = joyZone.getBoundingClientRect();
+            joystickOrigin = { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+            updateJoystick(e.clientX, e.clientY);
+        });
+
+        window.addEventListener('pointermove', (e) => {
+            if (joystickActive) {
+                updateJoystick(e.clientX, e.clientY);
+            }
+            if (touchLookActive) {
+                const dx = e.clientX - lastTouchLookPos.x;
+                const dy = e.clientY - lastTouchLookPos.y;
+                cameraAngleX -= dx * 0.008;
+                cameraAngleY = Math.max(0.1, Math.min(1.4, cameraAngleY + dy * 0.008));
+                lastTouchLookPos = { x: e.clientX, y: e.clientY };
+            }
+        });
+
+        window.addEventListener('pointerup', () => {
+            joystickActive = false;
+            input.x = 0; input.y = 0;
+            joyKnob.style.transform = `translate(0px, 0px)`;
+            touchLookActive = false;
+        });
+
+        function updateJoystick(clientX, clientY) {
+            const maxRadius = 45;
+            let dx = clientX - joystickOrigin.x;
+            let dy = clientY - joystickOrigin.y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            if (dist > maxRadius) {
+                dx = (dx / dist) * maxRadius;
+                dy = (dy / dist) * maxRadius;
+            }
+            joyKnob.style.transform = `translate(${dx}px, ${dy}px)`;
+            input.x = dx / maxRadius;
+            input.y = dy / maxRadius;
+        }
+
+        // Look Touch Zone
+        const lookZone = document.getElementById('look-touch-zone');
+        lookZone.addEventListener('pointerdown', (e) => {
+            touchLookActive = true;
+            lastTouchLookPos = { x: e.clientX, y: e.clientY };
+        });
+
+        // UI Buttons
+        document.getElementById('btn-jump').addEventListener('click', () => {
+            if (!playerState.isJumping) {
+                playerState.isJumping = true;
+                playerState.jumpVelocity = 0.22;
+            }
+        });
+
+        document.getElementById('btn-attack').addEventListener('click', () => {
+            triggerAttack();
+        });
+
+        const shiftLockBtn = document.getElementById('btn-shiftlock');
+        const crosshair = document.getElementById('crosshair');
+        shiftLockBtn.addEventListener('click', () => {
+            playerState.shiftLock = !playerState.shiftLock;
+            shiftLockBtn.style.background = playerState.shiftLock ? 'rgba(0, 255, 255, 0.85)' : 'rgba(255, 140, 0, 0.85)';
+            crosshair.style.display = playerState.shiftLock ? 'block' : 'none';
+        });
+
+        // Keyboard Controls
+        const keys = {};
+        window.addEventListener('keydown', (e) => {
+            keys[e.code] = true;
+            if (e.code === 'Space' && !playerState.isJumping) {
+                playerState.isJumping = true;
+                playerState.jumpVelocity = 0.22;
+            }
+            if (e.code === 'KeyF' || e.code === 'KeyJ') triggerAttack();
+            if (e.code === 'ShiftLeft') {
+                playerState.shiftLock = !playerState.shiftLock;
+                crosshair.style.display = playerState.shiftLock ? 'block' : 'none';
+            }
+        });
+        window.addEventListener('keyup', (e) => { keys[e.code] = false; });
+
+        // --- ATTACK MECHANIC & AUTO-AIM ---
+        function triggerAttack() {
+            if (playerState.isAttacking) return;
+            playerState.isAttacking = true;
+            playerState.attackTime = 0;
+
+            // Smart Auto-Aim & Hit Detection (Titan TV Blade Slash)
+            let nearestZombie = null;
+            let minDist = 6.0;
+
+            zombies.forEach(z => {
+                const dist = playerGroup.p
